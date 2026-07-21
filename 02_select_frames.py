@@ -162,6 +162,33 @@ def detect_stable_regions(seg_mafd, min_stable_frames):
     return regions
 
 
+# ── 内容去重（同 shot 内多个 key_frame 画面雷同）──────────────────
+def dedup_by_content(key_frame_scores, frames_224, mse_threshold=50):
+    """
+    MSE < mse_threshold（224x224 RGB uint8 尺度）视为内容雷同，
+    同一雷同组内只保留评分最高的一帧。
+
+    注意：这里按分数取代，而不是简单地"保留先遍历到的那个"——
+    因为 key_frame_scores 在调用处是按 stable region 的时间顺序排列的，
+    如果只按顺序去重，会系统性地偏向保留时间靠前的稳定段，
+    即使后面画质更好的稳定段分数更高。
+    """
+    kept = []  # [fn, score]
+    for fn, score in key_frame_scores:
+        fn_img = frames_224[fn].astype(np.float32)
+        dup_idx = None
+        for i, (k_fn, k_score) in enumerate(kept):
+            mse = float(np.mean((fn_img - frames_224[k_fn].astype(np.float32)) ** 2))
+            if mse < mse_threshold:
+                dup_idx = i
+                break
+        if dup_idx is None:
+            kept.append([fn, score])
+        elif score > kept[dup_idx][1]:
+            kept[dup_idx] = [fn, score]
+    return [(fn, score) for fn, score in kept]
+
+
 # ── GPU 单镜头处理 ──────────────────────────────────────────────
 def process_shot_gpu(shot_id, seg_start, seg_end,
                      all_frames_224, full_mafd, device, fps):
@@ -236,6 +263,10 @@ def process_shot_gpu(shot_id, seg_start, seg_end,
 
     if not key_frame_scores:
         key_frame_scores = [((seg_start + seg_end) // 2, 0.0)]
+
+    # --- 内容去重：同一 shot 内多个稳定段选出的帧如果画面雷同，只留分高的 ---
+    key_frame_scores = dedup_by_content(key_frame_scores, all_frames_224, mse_threshold=50)
+    # --- 结束 ---
 
     # 按帧号排序（保持时间升序）
     key_frame_scores.sort(key=lambda x: x[0])

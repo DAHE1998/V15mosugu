@@ -30,7 +30,7 @@ echo "=== [00] scdet_vulkan ==="
 # ── 01: skeleton ──
 echo
 echo "=== [01] skeleton ==="
-$PY "$SCRIPT_DIR/01_skeleton.py" "$WORK_DIR"
+"$SCRIPT_DIR/01_skeleton" "$WORK_DIR"
 
 # ── 02: select_frames ──
 echo

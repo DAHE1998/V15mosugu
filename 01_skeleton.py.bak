@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""01 - skeleton (shot level)
+
+Read cut points from 00_scdet and build shots[] skeleton.
+Forwards upstream info only - no visual/semantic/time calculation.
+
+Output:
+  01_skeleton/skeleton.json
+  - video, fps, width, height, total_frames
+  - shots[]
+      - id, range{start,end}
+"""
+import json
+import sys
+import os
+
+LOG_TAG = "[01]"
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(f"{LOG_TAG} Usage: 01_skeleton.py <work_dir>")
+        sys.exit(1)
+
+    work = sys.argv[1]
+    out_dir = os.path.join(work, "01_skeleton")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Read raw_cuts.json (events.json always has empty events, use raw_cuts directly)
+    cuts_path = os.path.join(work, "00_scdet", "raw_cuts.json")
+    if not os.path.isfile(cuts_path):
+        cuts_path = os.path.join(work, "00_change_cuda", "raw_cuts.json")
+
+    with open(cuts_path) as f:
+        d = json.load(f)
+
+    video = d["video"]
+    fps = d["fps"]
+    width = d["width"]
+    height = d["height"]
+    tf = d["total_frames"]
+    cuts = sorted(set(d.get("cuts", [])))
+    valid = sorted({c for c in cuts if 0 < c < tf})
+    bounds = [0] + valid + [tf]
+
+    shots = []
+    for i in range(len(bounds) - 1):
+        shots.append({
+            "id": i,
+            "range": {"start": bounds[i], "end": bounds[i + 1] - 1},
+        })
+
+    skeleton = {
+        "video": video,
+        "fps": fps,
+        "width": width,
+        "height": height,
+        "total_frames": tf,
+        "shots": shots,
+    }
+
+    out_path = os.path.join(out_dir, "skeleton.json")
+    with open(out_path, "w") as f:
+        json.dump(skeleton, f, ensure_ascii=False, indent=2)
+
+    print(f"{LOG_TAG} -> {out_path} ({len(shots)} shots)")
+
+
+if __name__ == "__main__":
+    main()
