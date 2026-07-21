@@ -3,9 +3,9 @@
 
 直接消费 02 的 key_frames，不重新抽帧。
 
-输入:  06.5_fragment/skeleton.json (shots[] + scenes[])
-输出:  07_vlm/skeleton.json  (+ scene.profile)
-       07_vlm/vlm_output.json
+输入:  fragment/skeleton.json (shots[] + scenes[])
+输出:  vlm/skeleton.json  (+ scene.profile)
+       vlm/vlm_output.json
 """
 import os, sys
 import torch, json, time, subprocess as sp, re
@@ -14,11 +14,11 @@ from PIL import Image
 assert torch.cuda.is_available(), "CUDA 不可用，检查 torch 安装"
 
 output = sys.argv[1]
-in_path = os.path.join(output, "06.5_fragment", "skeleton.json")
+in_path = os.path.join(output, "fragment", "skeleton.json")
 with open(in_path) as f:
     skeleton = json.load(f)
 
-out_dir = os.path.join(output, "07_vlm")
+out_dir = os.path.join(output, "vlm")
 os.makedirs(out_dir, exist_ok=True)
 
 video = skeleton["video"]
@@ -134,7 +134,7 @@ for batch_start in range(0, len(scene_jobs), BATCH):
     for scene, kf_set in batch:
         dur_s = (scene["range"]["end"] - scene["range"]["start"] + 1) / fps
 
-        # ASR 文本（来自 06_asr_aggregate 的 scene 级整段文本）
+        # ASR 文本（来自 asr_aggregate 的 scene 级整段文本）
         asr_text = scene.get("asr_text", "").strip()
 
         # 构建带上下文的 prompt
@@ -222,7 +222,7 @@ vlm_results = [{
     "profile": s.get("profile", {}),
 } for s in scenes]
 with open(vlm_out, "w") as f:
-    json.dump({"step": "07_vlm", "n_scenes": len(scenes), "results": vlm_results},
+    json.dump({"step": "vlm", "n_scenes": len(scenes), "results": vlm_results},
               f, ensure_ascii=False, indent=2)
 
 n_vlm = sum(1 for s in scenes if "profile" in s)

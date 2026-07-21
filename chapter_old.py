@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """08 — 章节聚类: 基于 VLM profile 的场景相似度聚类 → chapters 填入骨架。
 
-输入:  07_vlm/skeleton.json (shots[] + scenes[] + scene.profile)
+输入:  vlm/skeleton.json (shots[] + scenes[] + scene.profile)
 输出:  08_chapter/skeleton.json  (+ chapters[] 章节层)
        08_chapter/chapter_output.json
 """
@@ -9,11 +9,11 @@ import json, sys, os
 from exp5_event_merge_v2 import build_cluster_profile, compute_merge_score
 
 output = sys.argv[1]
-in_path = os.path.join(output, "07_vlm", "skeleton.json")
+in_path = os.path.join(output, "vlm", "skeleton.json")
 with open(in_path) as f:
     skeleton = json.load(f)
 
-out_dir = os.path.join(output, "08_chapter")
+out_dir = os.path.join(output, "chapter_old")
 os.makedirs(out_dir, exist_ok=True)
 
 scenes = skeleton.get("scenes", [])
@@ -92,7 +92,7 @@ with open(skel_out, "w") as f:
 ch_out = os.path.join(out_dir, "chapter_output.json")
 with open(ch_out, "w") as f:
     json.dump({
-        "step": "08_chapter",
+        "step": "chapter_old",
         "n_scenes": len(scenes),
         "n_chapters": len(chapters),
         "chapters": chapter_list,

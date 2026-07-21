@@ -7,7 +7,7 @@ import torch
 from transformers import Qwen3VLForConditionalGeneration, BitsAndBytesConfig, AutoProcessor
 from qwen_vl_utils import process_vision_info
 
-skeleton_path = sys.argv[1] if len(sys.argv) > 1 else "/home/dahe/VideoCenter/test_videos/street/japanese_street_girls/06.5_fragment/skeleton.json"
+skeleton_path = sys.argv[1] if len(sys.argv) > 1 else "/home/dahe/VideoCenter/test_videos/street/japanese_street_girls/fragment/skeleton.json"
 
 with open(skeleton_path) as f:
     skeleton = json.load(f)

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """09 — Chapter: Event → Chapter, linear pass with multi-dimensional similarity。
 
-输入:  08_event_merge/skeleton.json (events[] + scenes[] with profile + asr_text)
-输出:  09_chapter/skeleton.json (+ chapters[])
-       09_chapter/chapter_output.json
+输入:  event_merge/skeleton.json (events[] + scenes[] with profile + asr_text)
+输出:  chapter/skeleton.json (+ chapters[])
+       chapter/chapter_output.json
 
 v3.0 改动:
   - 从原 08_chapter.py 第二级逻辑拆出
@@ -136,7 +136,7 @@ def main():
         sys.exit(1)
 
     work = sys.argv[1]
-    in_path = os.path.join(work, "08_event_merge", "skeleton.json")
+    in_path = os.path.join(work, "event_merge", "skeleton.json")
     with open(in_path) as f:
         skeleton = json.load(f)
 
@@ -204,7 +204,7 @@ def main():
     # 填入骨架
     skeleton["chapters"] = chapter_list
 
-    out_dir = os.path.join(work, "09_chapter")
+    out_dir = os.path.join(work, "chapter")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "skeleton.json"), "w") as f:
         json.dump(skeleton, f, ensure_ascii=False, indent=2)
@@ -212,7 +212,7 @@ def main():
     ch_out = os.path.join(out_dir, "chapter_output.json")
     with open(ch_out, "w") as f:
         json.dump({
-            "step": "09_chapter",
+            "step": "chapter",
             "n_events": len(events),
             "n_chapters": len(chapters),
             "thr": THR,

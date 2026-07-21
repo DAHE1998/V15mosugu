@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """06 — ASR Aggregate: VAD 段时间轴整段就近归属 Scene。
 
-输入:  04.5_fragment/skeleton.json (scenes[] + range + shot_ids)
-       05_asr/asr_timeline.json (VAD 段时间轴)
-输出:  06_asr_aggregate/skeleton.json (+ scenes[].asr_text)
-       06_asr_aggregate/orphan_segments.json
+输入:  fragment/skeleton.json (scenes[] + range + shot_ids)
+       asr/asr_timeline.json (VAD 段时间轴)
+输出:  asr_aggregate/skeleton.json (+ scenes[].asr_text)
+       asr_aggregate/orphan_segments.json
 
 v3.0 新增模块:
   - 每个 VAD 段整段归入重叠最多的 scene，不切字
@@ -18,12 +18,12 @@ import torch
 assert torch.cuda.is_available(), "CUDA 不可用，检查 torch 安装"
 
 output = sys.argv[1]
-out_dir = os.path.join(output, "06_asr_aggregate")
+out_dir = os.path.join(output, "asr_aggregate")
 os.makedirs(out_dir, exist_ok=True)
 
 # ── 读取输入 ──────────────────────────────────────────────────────
-scene_path = os.path.join(output, "04.5_fragment", "skeleton.json")
-asr_path = os.path.join(output, "05_asr", "asr_timeline.json")
+scene_path = os.path.join(output, "fragment", "skeleton.json")
+asr_path = os.path.join(output, "asr", "asr_timeline.json")
 
 with open(scene_path) as f:
     skeleton = json.load(f)
@@ -147,7 +147,7 @@ with open(skel_out, "w") as f:
     json.dump(skeleton, f, ensure_ascii=False, indent=2)
 
 orphan_out = {
-    "step": "06_asr_aggregate",
+    "step": "asr_aggregate",
     "n_orphan": len(orphan_segments),
     "n_interior": len(interior_orphans),
     "n_boundary": boundary_orphans,

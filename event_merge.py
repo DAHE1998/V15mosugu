@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """08 — Event Merge: Scene → Event, linear pass with merge_score。
 
-输入:  07_vlm/skeleton.json (scenes[] + profile + asr_text)
-输出:  08_event_merge/skeleton.json (+ events[])
-       08_event_merge/event_output.json
+输入:  vlm/skeleton.json (scenes[] + profile + asr_text)
+输出:  event_merge/skeleton.json (+ events[])
+       event_merge/event_output.json
 
 v3.0 改动:
   - 从 exp5_event_merge_v2.py 收编 build_cluster_profile + compute_merge_score
@@ -184,7 +184,7 @@ def main():
         sys.exit(1)
 
     work = sys.argv[1]
-    in_path = os.path.join(work, "07_vlm", "skeleton.json")
+    in_path = os.path.join(work, "vlm", "skeleton.json")
     with open(in_path) as f:
         skeleton = json.load(f)
 
@@ -192,7 +192,7 @@ def main():
     print(f"{LOG_TAG} {len(scenes)} scenes  THR=0.17")
 
     # 设置 visual graph 路径
-    vis_graph_path = os.path.join(work, "04_dino_cluster", "shot_visual_graph.npy")
+    vis_graph_path = os.path.join(work, "dino_cluster", "shot_visual_graph.npy")
     set_vis_graph(vis_graph_path)
 
     # 构建 profiles dict（供 build_cluster_profile 使用）
@@ -256,7 +256,7 @@ def main():
     # 填入骨架
     skeleton["events"] = event_list
 
-    out_dir = os.path.join(work, "08_event_merge")
+    out_dir = os.path.join(work, "event_merge")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "skeleton.json"), "w") as f:
         json.dump(skeleton, f, ensure_ascii=False, indent=2)
@@ -264,7 +264,7 @@ def main():
     ev_out = os.path.join(out_dir, "event_output.json")
     with open(ev_out, "w") as f:
         json.dump({
-            "step": "08_event_merge",
+            "step": "event_merge",
             "n_scenes": len(scenes),
             "n_events": len(events),
             "thr": THR,

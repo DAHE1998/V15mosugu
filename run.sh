@@ -40,30 +40,30 @@ $PY "$SCRIPT_DIR/02_select_frames.py" "$WORK_DIR"
 # ── 03: ASR ──
 echo
 echo "=== [03] ASR ==="
-$PY "$SCRIPT_DIR/03_asr.py" "$WORK_DIR"
+$PY "$SCRIPT_DIR/asr.py" "$WORK_DIR"
 
 # ── 04: DINO visual cluster ──
 echo
 echo "=== [04] dino_cluster ==="
-$PY "$SCRIPT_DIR/04_dino_cluster.py" "$WORK_DIR"
+$PY "$SCRIPT_DIR/dino_cluster.py" "$WORK_DIR"
 
 # ── 05: text cluster ──
 echo
 echo "=== [05] text_cluster ==="
-$PY "$SCRIPT_DIR/05_text_cluster.py" "$WORK_DIR"
+$PY "$SCRIPT_DIR/text_cluster.py" "$WORK_DIR"
 
 # ── 06: merge ──
 echo
 echo "=== [06] merge ==="
-$PY "$SCRIPT_DIR/06_graph_merge.py" "$WORK_DIR"
+$PY "$SCRIPT_DIR/graph_merge.py" "$WORK_DIR"
 
 # ── 06.5: fragment ──
 echo
-echo "=== [06.5] fragment ==="
-$PY "$SCRIPT_DIR/06.5_fragment.py" "$WORK_DIR"
+echo "=== [fragment] fragment ==="
+$PY "$SCRIPT_DIR/fragment.py" "$WORK_DIR"
 
 echo
 echo "=============================================="
 echo "Done! Output: $WORK_DIR"
-echo "  Stop before VLM. Run 07_vlm.py manually."
+echo "  Stop before VLM. Run vlm.py manually."
 echo "=============================================="

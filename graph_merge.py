@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """04 — Scene Merge: 纯视觉 Connected Component + 序号连续性 + 三级验证。
 
-输入:  04_dino_cluster/skeleton.json (shots[] + range)
-       04_dino_cluster/shot_visual_graph.npy   (N×N, 仅此一个信号源)
+输入:  dino_cluster/skeleton.json (shots[] + range)
+       dino_cluster/shot_visual_graph.npy   (N×N, 仅此一个信号源)
 输出:  06_merge/skeleton.json  (+ scenes[])
        06_merge/graph_stats.json
 
@@ -14,8 +14,8 @@ v3.0 改动:
   - 不读取任何 asr / text_graph 文件
 
 用法:
-  python 06_graph_merge.py <work_dir>
-  MERGE_THR=0.78 THR_VIS=0.60 python 06_graph_merge.py <work_dir>
+  python graph_merge.py <work_dir>
+  MERGE_THR=0.78 THR_VIS=0.60 python graph_merge.py <work_dir>
 """
 import json, sys, os, time
 import numpy as np
@@ -212,7 +212,7 @@ def main():
         sys.exit(1)
 
     work = sys.argv[1]
-    in_path = os.path.join(work, "04_dino_cluster", "skeleton.json")
+    in_path = os.path.join(work, "dino_cluster", "skeleton.json")
     with open(in_path) as f:
         skeleton = json.load(f)
 
@@ -220,7 +220,7 @@ def main():
     N = len(shots)
     print(f"{LOG_TAG} {N} shots  MERGE_THR={MERGE_THR} WINDOW={WINDOW}")
 
-    vis_graph_path = os.path.join(work, "04_dino_cluster", "shot_visual_graph.npy")
+    vis_graph_path = os.path.join(work, "dino_cluster", "shot_visual_graph.npy")
 
     if not os.path.isfile(vis_graph_path):
         print(f"{LOG_TAG} visual graph 文件缺失, 请先跑 04")
@@ -244,7 +244,7 @@ def main():
     else:
         print(f"{LOG_TAG} {N} shots -> {n_scenes} scenes (empty)")
 
-    out_dir = os.path.join(work, "06_merge")
+    out_dir = os.path.join(work, "graph_merge")
     os.makedirs(out_dir, exist_ok=True)
 
     skeleton["scenes"] = scenes

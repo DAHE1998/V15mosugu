@@ -3,9 +3,9 @@
 
 每 shot 的文本 = 自身 ASR + 前后 15 秒上下文（避免时间切分导致的碎片）。
 
-输入:  04_dino_cluster/skeleton.json (shots[] + asr_text + visual_cluster)
-输出:  05_text_cluster/skeleton.json  (+ shot.text_cluster)
-       05_text_cluster/text_cluster.json
+输入:  dino_cluster/skeleton.json (shots[] + asr_text + visual_cluster)
+输出:  text_cluster/skeleton.json  (+ shot.text_cluster)
+       text_cluster/text_cluster.json
 """
 import json, sys, os, numpy as np, torch, torch.nn.functional as F
 from sentence_transformers import SentenceTransformer
@@ -13,11 +13,11 @@ from sentence_transformers import SentenceTransformer
 CONTEXT_SECONDS = 15  # 上下文窗口: 前后各 15 秒
 
 output = sys.argv[1]
-in_path = os.path.join(output, "04_dino_cluster", "skeleton.json")
+in_path = os.path.join(output, "dino_cluster", "skeleton.json")
 with open(in_path) as f:
     skeleton = json.load(f)
 
-out_dir = os.path.join(output, "05_text_cluster")
+out_dir = os.path.join(output, "text_cluster")
 os.makedirs(out_dir, exist_ok=True)
 
 shots = skeleton["shots"]

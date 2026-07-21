@@ -30,7 +30,7 @@ def get_emb_model():
 def _get_vis_graph():
     global _vis_graph
     if _vis_graph is None:
-        path = os.path.join(DATA_DIR, "04_dino_cluster", "shot_visual_graph.npy")
+        path = os.path.join(DATA_DIR, "dino_cluster", "shot_visual_graph.npy")
         if os.path.isfile(path):
             _vis_graph = np.load(path).astype(np.float32)
         else:

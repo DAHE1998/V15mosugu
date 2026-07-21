@@ -2,8 +2,8 @@
 """04.5 — Fragment: 短 scene 补偿 (快切合并 + 视觉相似度选侧)。
 
 输入:  06_merge/skeleton.json (shots[] + scenes[])
-输出:  06.5_fragment/skeleton.json  (+ scenes[] 经碎片补偿)
-       06.5_fragment/fragment_output.json
+输出:  fragment/skeleton.json  (+ scenes[] 经碎片补偿)
+       fragment/fragment_output.json
 
 v3.0 改动:
   - sem() 从 ASR 关键词匹配改为视觉相似度
@@ -17,20 +17,20 @@ import torch
 assert torch.cuda.is_available(), "CUDA 不可用，检查 torch 安装"
 
 output = sys.argv[1]
-in_path = os.path.join(output, "06_merge", "skeleton.json")
+in_path = os.path.join(output, "graph_merge", "skeleton.json")
 with open(in_path) as f:
     skeleton = json.load(f)
 
-out_dir = os.path.join(output, "06.5_fragment")
+out_dir = os.path.join(output, "fragment")
 os.makedirs(out_dir, exist_ok=True)
 
 scenes = skeleton.get("scenes", [])
 fps = skeleton["fps"]
 MIN_OK = int(3.0 * fps)
-print(f"[04.5] {len(scenes)} scenes  min_ok={MIN_OK}fr  frag_thr={int(3.0*fps)}fr")
+print(f"[fragment] {len(scenes)} scenes  min_ok={MIN_OK}fr  frag_thr={int(3.0*fps)}fr")
 
 # ── 加载视觉图 ──
-vis_graph_path = os.path.join(output, "04_dino_cluster", "shot_visual_graph.npy")
+vis_graph_path = os.path.join(output, "dino_cluster", "shot_visual_graph.npy")
 vis_graph = np.load(vis_graph_path).astype(np.float32) if os.path.isfile(vis_graph_path) else None
 if vis_graph is None:
     print(f"  WARNING: visual graph 缺失，sem() 将返回 0.0")
@@ -212,7 +212,7 @@ with open(skel_out, "w") as f:
 
 frag_out = os.path.join(out_dir, "fragment_output.json")
 with open(frag_out, "w") as f:
-    json.dump({"step": "04.5_fragment", "n_before": len(scenes), "n_after": len(merged)},
+    json.dump({"step": "fragment", "n_before": len(scenes), "n_after": len(merged)},
               f, ensure_ascii=False, indent=2)
 
 print(f"  -> {out_dir}/")

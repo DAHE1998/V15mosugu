@@ -2,7 +2,7 @@
 """05 — ASR 转录: VAD 整轨分段 → SenseVoiceSmall → asr_timeline.json。
 
 输入:  视频音轨（独立提取，不依赖 00-04.5 任何输出）
-输出:  05_asr/asr_timeline.json = [{start_ms, end_ms, text, lang}]
+输出:  asr/asr_timeline.json = [{start_ms, end_ms, text, lang}]
 
 v3.0 改动:
   - 删除按时间比例切分给 shot 的逻辑
@@ -18,7 +18,8 @@ from funasr.utils.postprocess_utils import rich_transcription_postprocess
 assert torch.cuda.is_available(), "CUDA 不可用，检查 torch 安装"
 
 output = sys.argv[1]
-out_dir = os.path.join(output, "05_asr")
+video_path = sys.argv[2] if len(sys.argv) > 2 else os.path.join(output, os.path.basename(output) + ".mp4")
+out_dir = os.path.join(output, "asr")
 os.makedirs(out_dir, exist_ok=True)
 
 SR = 16000
@@ -56,7 +57,7 @@ def asr_text_clean(text):
 # ── 1. 提取全轨音频 ──────────────────────────────────────────────
 t0 = time.time()
 tmp_audio = os.path.join(out_dir, "tmp.wav")
-sp.run(["ffmpeg", "-y", "-loglevel", "error", "-i", output,
+sp.run(["ffmpeg", "-y", "-loglevel", "error", "-i", video_path,
         "-vn", "-acodec", "pcm_s16le", "-ar", str(SR), "-ac", "1", tmp_audio],
        capture_output=True, check=True)
 wav, _ = sf.read(tmp_audio, dtype="float32", always_2d=False)
@@ -122,7 +123,7 @@ with open(os.path.join(out_dir, "vad_segments.json"), "w") as f:
                "n_valid": len(valid_segments), "segments": valid_segments},
               f, ensure_ascii=False, indent=2)
 
-asr_out = {"step": "05_asr", "n_segments": len(timeline), "results": timeline}
+asr_out = {"step": "asr", "n_segments": len(timeline), "results": timeline}
 with open(os.path.join(out_dir, "asr_timeline.json"), "w") as f:
     json.dump(asr_out, f, ensure_ascii=False, indent=2)
 

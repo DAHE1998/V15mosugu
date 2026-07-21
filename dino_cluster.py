@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """04 — DINO 视觉 shot 图: key_frames → DINOv2 → per-shot embedding + N×N graph。
 
-输入:  03_asr/skeleton.json (shots[] 含 key_frames + representative_frame + asr_text)
-输出:  04_dino_cluster/skeleton.json
-       04_dino_cluster/shot_embedding_mean.npy   — (N_shots, 1024) shot 级 mean-pooled embedding
-       04_dino_cluster/shot_visual_graph.npy      — (N_shots, N_shots) 余弦相似度矩阵
-       04_dino_cluster/key_frame_embeddings.npz   — key_frame 级 embedding + 映射关系
+输入:  02_select_frames/skeleton.json (shots[] 含 key_frames + representative_frame)
+输出:  dino_cluster/skeleton.json
+       dino_cluster/shot_embedding_mean.npy   — (N_shots, 1024) shot 级 mean-pooled embedding
+       dino_cluster/shot_visual_graph.npy      — (N_shots, N_shots) 余弦相似度矩阵
+       dino_cluster/key_frame_embeddings.npz   — key_frame 级 embedding + 映射关系
 """
 import json, sys, os, subprocess as sp
 import numpy as np, torch, torch.nn.functional as F
 
 output = sys.argv[1]
-in_path = os.path.join(output, "03_asr", "skeleton.json")
+in_path = os.path.join(output, "02_select_frames", "skeleton.json")
 with open(in_path) as f:
     skeleton = json.load(f)
 
-out_dir = os.path.join(output, "04_dino_cluster")
+out_dir = os.path.join(output, "dino_cluster")
 os.makedirs(out_dir, exist_ok=True)
 
 shots = skeleton["shots"]
@@ -104,6 +104,13 @@ for b in range(0, n_all, BS2):
 all_e = torch.cat(embs)
 del all_t
 torch.cuda.empty_cache()
+
+# ── 保存 key_frame 级 embedding（供 4.5 D50 去重）──
+kf_emb = all_e.cpu().numpy().astype(np.float16)
+np.savez(os.path.join(out_dir, "key_frame_embeddings.npz"),
+         embeddings=kf_emb,
+         frame_ids=np.array(all_f, dtype=np.int32))
+print(f"  saved key_frame embeddings: {kf_emb.shape}")
 
 # ── Per-shot mean pooling ──
 shot_emb = np.zeros((len(shots), all_e.shape[1]), dtype=np.float16)
