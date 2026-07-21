@@ -1,0 +1,29 @@
+#!/bin/bash
+# V15mosugu — Skeleton-based pipeline
+# Usage: bash run.sh <video>
+set -e
+
+source /home/dahe/miniconda3/etc/profile.d/conda.sh
+conda activate amaterasu
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+VIDEO="$1"
+DIR="$(dirname "$VIDEO")/$(basename "$VIDEO" .mp4)_v15mosugu"
+SKEL="$DIR/skeleton.json"
+mkdir -p "$DIR"
+
+echo "=== Step 1: Scene Detection → skeleton.json ==="
+python3 pipeline.py "$VIDEO"
+
+echo "=== Step 2: ASR → skeleton.text ==="
+python3 asr.py "$SKEL" -l auto
+
+echo "=== Step 3: VLM Profile → skeleton.key_frames + skeleton.profile ==="
+python3 vlm_profile.py "$SKEL"
+
+echo "=== Step 4: Chapter Clustering ==="
+python3 chapters.py "$SKEL" "$DIR/chapters.json" 2>/dev/null || echo "  (chapters.py pending)"
+
+echo "=== Done ==="
+echo "  Skeleton: $SKEL"
+echo "  Chapters: $DIR/chapters.json"

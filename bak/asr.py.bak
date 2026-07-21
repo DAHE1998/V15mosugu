@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""ASR: SenseVoiceSmall → per-scene transcription → enrich skeleton.json."""
+import os, sys, json, time, subprocess as sp, re
+import numpy as np
+import soundfile as sf
+from funasr import AutoModel
+from funasr.utils.postprocess_utils import rich_transcription_postprocess
+
+MODEL_PATH = "/home/dahe/.cache/modelscope/models/iic/SenseVoiceSmall"
+SR = 16000
+
+
+def load_model():
+    return AutoModel(model=MODEL_PATH, device="cuda:0")
+
+
+def extract_full_audio(video_path, output_path):
+    sp.run(["ffmpeg","-y","-loglevel","error","-i",video_path,
+        "-vn","-acodec","pcm_s16le","-ar",str(SR),"-ac","1",output_path],
+        capture_output=True, check=True)
+
+
+def frame_to_sample(fn, total_frames, duration):
+    if total_frames <= 0 or duration <= 0:
+        return int(fn / 24.0 * SR)
+    return int(fn * duration * SR / total_frames)
+
+
+def run_asr(skeleton_path, skeleton=None, language="auto", progress=None):
+    """Read skeleton.json, transcribe each scene, add text field, write back."""
+    if skeleton is None:
+        with open(skeleton_path) as f:
+            skeleton = json.load(f)
+
+    video = skeleton["video"]
+    total_frames = skeleton["total_frames"]
+    duration = skeleton["duration"]
+    scenes = skeleton["scenes"]
+
+    # Check cache: all scenes have text?
+    if all(s.get("text") for s in scenes):
+        if progress: progress("ASR cached: %d scenes" % len(scenes))
+        return skeleton
+
+    t0 = time.time()
+    if progress: progress("Loading SenseVoiceSmall...")
+    model = load_model()
+    if progress: progress("Model loaded (%.0fs)" % (time.time()-t0))
+
+    # Extract full audio once
+    tmp_audio = skeleton_path + ".tmp.wav"
+    if progress: progress("Extracting audio...")
+    extract_full_audio(video, tmp_audio)
+    full_wav, _ = sf.read(tmp_audio, dtype="float32", always_2d=False)
+    if full_wav.ndim > 1:
+        full_wav = full_wav.mean(axis=-1)
+    os.remove(tmp_audio)
+
+    for i, scene in enumerate(scenes):
+        ss = frame_to_sample(scene["start_frame"], total_frames, duration)
+        es = frame_to_sample(scene["end_frame"], total_frames, duration)
+        es = min(es, len(full_wav))
+        seg = full_wav[ss:es] if ss < es else np.zeros(160, dtype=np.float32)
+        if len(seg) < 160:
+            seg = np.zeros(160, dtype=np.float32)
+
+        wav_path = skeleton_path + ".%s.wav" % scene["scene"]
+        sf.write(wav_path, seg.astype(np.float32), SR)
+
+        try:
+            res = model.generate(input=wav_path, language=language, use_itn=True)
+            text = rich_transcription_postprocess(res[0]["text"]) if res else ""
+            # Truncate at last 。
+            last = max(text.rfind("。"), text.rfind("."))
+            if last > 0:
+                text = text[:last+1]
+            scene["text"] = text
+        except Exception as e:
+            scene["text"] = ""
+            if progress: progress("  %s error: %s" % (scene["scene"], e))
+        finally:
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
+
+        if progress and (i+1) % 20 == 0:
+            progress("  [%d/%d]" % (i+1, len(scenes)))
+
+    # Write back
+    with open(skeleton_path, "w") as f:
+        json.dump(skeleton, f, ensure_ascii=False, indent=2)
+
+    if progress: progress("ASR done: %d scenes, %.0fs" % (len(scenes), time.time()-t0))
+    return skeleton
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("skeleton", help="path to skeleton.json")
+    parser.add_argument("-l", "--language", default="auto")
+    args = parser.parse_args()
+    run_asr(args.skeleton, language=args.language,
+            progress=lambda msg: print("  " + msg))
+    print("Done")

@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""V15mosugu Scene Detection → skeleton.json.
+scdet → heartbeat(DINO cosine) → segment embedding → cosine merge → cleanup → re-insert"""
+import subprocess as sp, json, numpy as np, torch, re, os, sys
+import torch.nn.functional as F
+from torchvision import transforms
+
+VIDEO = sys.argv[1]
+DIR = os.path.dirname(VIDEO)
+NAME = os.path.splitext(os.path.basename(VIDEO))[0]
+OUT = os.path.join(DIR, NAME + "_v15mosugu")
+os.makedirs(OUT, exist_ok=True)
+SKEL = os.path.join(OUT, "skeleton.json")
+
+BATCH = 32; HB_GAP = 200; MIN_SEG = 200; LONG_SEG = 730
+COS_THR = 0.50; HB_COS_THR = 0.70
+HEARTBEAT_RATIOS = [0.20, 0.40, 0.60, 0.80]
+
+# --- Video info ---
+rp = sp.run(["ffprobe","-v","error","-select_streams","v:0",
+    "-show_entries","stream=nb_frames,width,height","-of","csv=p=0",VIDEO],
+    capture_output=True,text=True)
+parts = rp.stdout.strip().split(",")
+W = int(parts[0]); H = int(parts[1])
+total_frames = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+rd = sp.run(["ffprobe","-v","error","-show_entries","format=duration",
+    "-of","csv=p=0",VIDEO],capture_output=True,text=True)
+duration = float(rd.stdout.strip())
+if total_frames == 0: total_frames = int(duration * 24.0)
+fps_val = total_frames / duration if duration > 0 else 24.0
+print(f"Video: {W}x{H} {total_frames}frames {duration:.1f}s")
+
+# --- Load DINO ---
+print("Loading DINOv2 ViT-L/14...")
+dinov2 = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14")
+dinov2 = dinov2.to("cuda").eval().half()
+TR = transforms.Compose([transforms.ToTensor(),
+    transforms.Resize(256), transforms.CenterCrop(224),
+    transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])])
+
+def extract_frames_gpu(frames, size=224):
+    """GPU ffmpeg rawvideo pipe → numpy array (N, size, size, 3)."""
+    if not frames: return None
+    sel = "+".join(["eq(n\,%d)" % f for f in frames])
+    proc = sp.Popen(["ffmpeg","-hwaccel","cuda","-loglevel","error","-i",VIDEO,
+        "-vf","select="+sel+",scale=%d:%d"%(size,size),
+        "-vsync","0","-f","rawvideo","-pix_fmt","rgb24","-"],
+        stdout=sp.PIPE, bufsize=128*1024*1024)
+    n = len(frames)
+    raw = proc.stdout.read(n * size * size * 3)
+    proc.terminate()
+    if len(raw) < n * size * size * 3: return None
+    return np.frombuffer(raw, dtype=np.uint8).reshape(n, size, size, 3)
+
+def dino_embed_np(arr):
+    """numpy (N,H,W,3) → DINO embeddings (N,1024) FP16."""
+    batch = torch.cat([TR(arr[i]).unsqueeze(0) for i in range(arr.shape[0])]).to("cuda").half()
+    with torch.no_grad(): return dinov2(batch)
+
+def seg_dino(sf, ef):
+    """Average DINO embedding of a segment (3 sample frames at 25/50/75%)."""
+    dur = ef - sf
+    fns = [sf + int(dur * r) for r in [0.25, 0.50, 0.75]]
+    arr = extract_frames_gpu(fns, 224)
+    if arr is None: return None
+    emb = dino_embed_np(arr)
+    return emb.mean(dim=0, keepdim=True)  # (1, 1024)
+
+# --- Step 1: scdet ---
+print("[1] scdet (GPU decode)")
+r = sp.run(["ffmpeg","-hwaccel","cuda","-c:v","h264_cuvid",
+    "-i",VIDEO,"-vf","scdet=threshold=10","-f","null","-"],
+    stderr=sp.PIPE, stdout=sp.PIPE, text=True)
+scdet_secs = [float(m.group(1)) for line in r.stderr.split("\n")
+              if (m := re.search(r"scd\.time:\s+([\d.]+)", line))]
+scdet_frames = sorted(set(round(t * fps_val) for t in scdet_secs))
+bounds = [0] + [f for f in scdet_frames if 0 < f < total_frames] + [total_frames]
+print(f"  {len(bounds)-1} segments, {len(scdet_frames)} scdet cuts")
+
+# --- Step 2: Heartbeat (long segments without scdet) ---
+print(f"[2] Heartbeat (gap>={HB_GAP}fr)")
+long = [(bounds[i], bounds[i+1], i) for i in range(len(bounds)-1)
+        if bounds[i+1] - bounds[i] > HB_GAP]
+print(f"  {len(long)} long segments")
+for sf, ef, i in long:
+    e1 = seg_dino(sf, sf+1)
+    e2 = seg_dino(ef-1, ef)
+    if e1 is not None and e2 is not None:
+        cos = float(F.cosine_similarity(F.normalize(e1,dim=-1), F.normalize(e2,dim=-1)).item())
+        if cos < HB_COS_THR:
+            dur = ef - sf
+            for r in HEARTBEAT_RATIOS:
+                bounds.append(sf + int(dur * r))
+            print(f"  seg[{i}] cos={cos:.3f} -> split")
+bounds = sorted(set(bounds))
+print(f"  {len(bounds)-1} segments after heartbeat")
+
+# --- Step 3: Segment DINO embeddings ---
+print(f"[3] DINO segment embeddings (batch={BATCH})")
+nseg = len(bounds) - 1
+seg_emb = []
+for i in range(nseg):
+    seg_emb.append(seg_dino(bounds[i], bounds[i+1]))
+    if (i+1) % 10 == 0: print(f"  [{i+1}/{nseg}]")
+torch.cuda.empty_cache()
+print(f"  {len(seg_emb)} embeddings")
+
+# --- Step 4: Cosine merge ---
+print(f"[4] Cosine merge (thr={COS_THR})")
+# BFS: repeatedly merge the highest-cos adjacent pair
+bound_list = bounds[:]
+changed = True
+while changed:
+    changed = False
+    n = len(bound_list) - 1
+    best_i, best_cos = -1, 0
+    for i in range(n):
+        if seg_emb[i] is None or seg_emb[i+1] is None: continue
+        cos = float(F.cosine_similarity(
+            F.normalize(seg_emb[i],dim=-1), F.normalize(seg_emb[i+1],dim=-1)).item())
+        if cos >= COS_THR and cos > best_cos:
+            best_i, best_cos = i, cos
+    if best_i >= 0:
+        bound_list.pop(best_i+1)
+        seg_emb[best_i] = (seg_emb[best_i] + seg_emb[best_i+1]) / 2
+        seg_emb.pop(best_i+1)
+        changed = True
+n_merged = len(bounds) - len(bound_list)
+print(f"  merged {n_merged} -> {len(bound_list)-1} segments")
+
+# --- Step 5: Short segment cleanup ---
+print(f"[5] Short cleanup (<{MIN_SEG}fr)")
+nscene = len(bound_list) - 1
+for _ in range(nscene):
+    dur_list = [bound_list[i+1]-bound_list[i] for i in range(nscene)]
+    if min(dur_list) >= MIN_SEG: break
+    si = dur_list.index(min(dur_list))
+    left = bound_list[si]-bound_list[si-1] if si > 0 else float("inf")
+    right = bound_list[si+2]-bound_list[si+1] if si < nscene-1 else float("inf")
+    if left <= right and si > 0: bound_list.pop(si)
+    elif si < nscene-1: bound_list.pop(si+1)
+    else: break
+    nscene = len(bound_list) - 1
+print(f"  {nscene} scenes")
+
+# --- Step 6: Re-insert scdet from long segments ---
+print(f"[6] Re-insert scdet (>{LONG_SEG}fr)")
+readd = 0
+for i in range(nscene):
+    dur = bound_list[i+1] - bound_list[i]
+    if dur > LONG_SEG:
+        inside = sorted([s for s in scdet_frames if bound_list[i] < s < bound_list[i+1]])
+        for j, s in enumerate(inside): bound_list.insert(i+1+j, s)
+        readd += len(inside)
+if readd:
+    nscene = len(bound_list) - 1
+    print(f"  +{readd} -> {nscene} scenes")
+
+# --- Output: skeleton.json ---
+scenes = [{"scene":"sc_%03d"%i, "start_frame":bound_list[i], "end_frame":bound_list[i+1]}
+          for i in range(len(bound_list)-1)]
+skeleton = {"video":os.path.abspath(VIDEO), "total_frames":total_frames,
+            "duration":duration, "fps":fps_val, "width":W,"height":H, "scenes":scenes}
+with open(SKEL,"w") as f: json.dump(skeleton, f, ensure_ascii=False, indent=2)
+print(f"\n=== DONE: {len(scenes)} scenes ===\n  Skeleton: {SKEL}")
