@@ -89,27 +89,28 @@ static double probe_fps(const char *video_path) {
 static int spawn_segment(const Shot *s, const char *video,
                           const char *out_dir, double fps,
                           int max_workers) {
-    int n_frames = s->end - s->start + 1;
-    double t_start = s->start / fps;
+    int trim_start = s->start + 1;
+    int trim_end   = s->end - 1;
+    int n_frames = trim_end - trim_start + 1;
+    double t_start = trim_start / fps;
 
     char out_path[4096];
     snprintf(out_path, sizeof(out_path), "%s/segment_%04d.mp4",
              out_dir, s->id);
 
-    char sf[32], sn[32], st[32];
-    snprintf(sf, sizeof(sf), "%d", s->start);
+    char sn[32], st[32];
     snprintf(sn, sizeof(sn), "%d", n_frames);
     snprintf(st, sizeof(st), "%.6f", t_start);
 
-    /* Fork directly — use system() for simplicity, matching Python */
+    /* -ss before -i → GPU keyframe seek, fast. ±1 frame at boundaries OK. */
     char cmd[8192];
     snprintf(cmd, sizeof(cmd),
-        "ffmpeg -y -v error "
+        "ffmpeg -y -hide_banner "
         "-hwaccel cuda -hwaccel_output_format cuda "
         "-ss %s -i '%s' "
-        "-frames:v %s -fps_mode passthrough "
-        "-c:v h264_nvenc -preset p4 -cq 26 "
-        "-forced-idr 1 -an '%s'",
+        "-frames:v %s "
+        "-c:v h264_nvenc -preset p1 -cq 26 "
+        "-c:a aac -b:a 128k '%s'",
         st, video, sn, out_path);
 
     int ret = system(cmd);
