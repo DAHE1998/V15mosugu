@@ -7,9 +7,11 @@
 输出:  07_vlm/skeleton.json  (+ scene.profile)
        07_vlm/vlm_output.json
 """
-import os, sys, json, time, subprocess as sp, re
+import os, sys
+import torch, json, time, subprocess as sp, re
 import numpy as np
 from PIL import Image
+assert torch.cuda.is_available(), "CUDA 不可用，检查 torch 安装"
 
 output = sys.argv[1]
 in_path = os.path.join(output, "06.5_fragment", "skeleton.json")
@@ -132,15 +134,8 @@ for batch_start in range(0, len(scene_jobs), BATCH):
     for scene, kf_set in batch:
         dur_s = (scene["range"]["end"] - scene["range"]["start"] + 1) / fps
 
-        # ASR 文本（优先用 contextual ASR，它有 ±15秒上下文）
-        asr_parts = []
-        for sid in scene.get("shot_ids", []):
-            s = shots_by_id.get(sid)
-            if s:
-                t = (s.get("asr_contextual") or s.get("asr_text") or "").strip()
-                if t:
-                    asr_parts.append(t)
-        asr_text = "。".join(asr_parts) if asr_parts else ""
+        # ASR 文本（来自 06_asr_aggregate 的 scene 级整段文本）
+        asr_text = scene.get("asr_text", "").strip()
 
         # 构建带上下文的 prompt
         context = f"场景时长: {dur_s:.0f}秒"
@@ -213,6 +208,8 @@ for batch_start in range(0, len(scene_jobs), BATCH):
 
 # ── 输出 ──
 skeleton["scenes"] = scenes
+# C9 assert: 不得读取 shot_text_graph.npy
+assert "shot_text_graph" not in dir() and "shot_text_graph" not in globals(), "C9 失败: 读取了 shot_text_graph"
 skel_out = os.path.join(out_dir, "skeleton.json")
 with open(skel_out, "w") as f:
     json.dump(skeleton, f, ensure_ascii=False, indent=2)
