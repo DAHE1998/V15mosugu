@@ -2,85 +2,103 @@
 """
 visual_cluster — 第一轮纯视觉聚类: shot → proto-scene
 
-基于 DINO 相邻 shot 余弦相似度，在相似度骤降处切分，
-将 shot 合并为 proto-scene。纯视觉信号，不引入文本/ASR。
+基于 DINO shot_visual_graph (N×N 余弦相似度矩阵)，
+Union-Find Connected Components，只用视觉信号。
 
 输入:  d50_dedup/skeleton.json (去重后的 shots)
-       dino_cluster/skeleton.json (含 adjacent similarity)
+       dino_cluster/shot_visual_graph.npy (N×N)
 输出:  visual_cluster/skeleton.json (+ proto_scenes[])
 """
 
 import json, os, sys
 import numpy as np
 
-CUT_THR = 0.75  # 相邻 shot 相似度低于此值 → 切分
-MIN_SCENE_FRAMES = 15  # 最短 scene（帧），短于此时合并到相邻
+VIS_THR = 0.70   # 建边余弦阈值
+WINDOW  = 30     # 时间窗口（只连窗口内的 shot pair）
+MIN_SCENE_FRAMES = 15  # 最短场景帧数，短于此合并到相邻
+
+
+class UnionFind:
+    def __init__(self, n):
+        self.p = list(range(n))
+        self.r = [0] * n
+
+    def find(self, x):
+        while self.p[x] != x:
+            self.p[x] = self.p[self.p[x]]
+            x = self.p[x]
+        return x
+
+    def union(self, a, b):
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return False
+        if self.r[ra] < self.r[rb]:
+            self.p[ra] = rb
+        elif self.r[ra] > self.r[rb]:
+            self.p[rb] = ra
+        else:
+            self.p[rb] = ra
+            self.r[ra] += 1
+        return True
+
+
+def cc_cluster(graph, n, thr, window):
+    uf = UnionFind(n)
+    edges = 0
+    for i in range(n):
+        for j in range(i + 1, min(n, i + window)):
+            if float(graph[i, j]) >= thr:
+                uf.union(i, j)
+                edges += 1
+    comps = {}
+    for i in range(n):
+        root = uf.find(i)
+        comps.setdefault(root, []).append(i)
+    return list(comps.values()), edges
 
 
 def main():
     if len(sys.argv) < 2:
-        print(f"用法: {sys.argv[0]} <output_dir> [cut_threshold]")
+        print(f"用法: {sys.argv[0]} <output_dir> [vis_thr] [window]")
         sys.exit(1)
 
     output = sys.argv[1]
-    cut_thr = float(sys.argv[2]) if len(sys.argv) > 2 else CUT_THR
+    thr = float(sys.argv[2]) if len(sys.argv) > 2 else VIS_THR
+    window = int(sys.argv[3]) if len(sys.argv) > 3 else WINDOW
 
     d50_path = os.path.join(output, "d50_dedup", "skeleton.json")
+    graph_path = os.path.join(output, "dino_cluster", "shot_visual_graph.npy")
 
     with open(d50_path) as f:
         skeleton = json.load(f)
+    graph = np.load(graph_path)
 
     shots = skeleton["shots"]
     fps = skeleton["fps"]
     n = len(shots)
 
-    # ── 收集相邻 shot 相似度 ──
-    # 从 dino_cluster skeleton 读取 visual_cluster.next_similarity
-    dino_path = os.path.join(output, "dino_cluster", "skeleton.json")
-    with open(dino_path) as f:
-        dino_sk = json.load(f)
+    print(f"[visual_cluster] {n} shots  thr={thr}  window={window}")
 
-    # dino_sk shots 含有 visual_cluster.next_similarity
-    boundaries = []
-    for i, s in enumerate(dino_sk["shots"][:n]):
-        vc = s.get("visual_cluster", {})
-        sim = vc.get("next_similarity")
-        if sim is not None and sim < cut_thr:
-            boundaries.append(i)
+    # ── CC 聚类 ──
+    comps, edges = cc_cluster(graph, n, thr, window)
+    comps.sort(key=lambda c: c[0])
+    print(f"  edges={edges}  components={len(comps)}")
 
-    print(f"[visual_cluster] {n} shots  cut_thr={cut_thr}  "
-          f"boundaries={len(boundaries)}")
-
-    # ── 按边界分组 ──
-    scenes = []
-    prev = 0
-    for bi in boundaries:
-        if bi + 1 > prev:
-            scenes.append(list(range(prev, bi + 1)))
-        prev = bi + 1
-    if prev < n:
-        scenes.append(list(range(prev, n)))
-
-    # ── 合并过短 scene ──
-    min_fr = int(MIN_SCENE_FRAMES)
-    merged = []
-    for sc in scenes:
-        sf = shots[sc[0]]["range"]["start"]
-        ef = shots[sc[-1]]["range"]["end"]
-        dur_fr = ef - sf + 1
-
-        if dur_fr < min_fr and len(merged) > 0:
-            # 合并到上一个 scene
-            merged[-1].extend(sc)
-        else:
-            merged.append(sc)
-
-    # ── 构建输出 ──
+    # ── 构建 proto-scenes ──
     proto_scenes = []
-    for ci, shot_ids in enumerate(merged):
+    for ci, comp in enumerate(comps):
+        shot_ids = sorted(comp)
         sf = shots[shot_ids[0]]["range"]["start"]
         ef = shots[shot_ids[-1]]["range"]["end"]
         dur = (ef - sf + 1) / fps
+
+        # 组件内平均相似度
+        sims = [float(graph[i, j])
+                for a in range(len(shot_ids))
+                for b in range(a + 1, len(shot_ids))
+                for i in [shot_ids[a]] for j in [shot_ids[b]]]
+        mean_sim = float(np.mean(sims)) if sims else 1.0
 
         proto_scenes.append({
             "id": ci,
@@ -88,33 +106,51 @@ def main():
             "n_shots": len(shot_ids),
             "range": {"start": sf, "end": ef},
             "duration_s": round(dur, 1),
+            "mean_visual_sim": round(mean_sim, 4),
         })
 
-    skeleton["proto_scenes"] = proto_scenes
+    # ── 合并过短 scene ──
+    min_fr = int(MIN_SCENE_FRAMES)
+    merged = []
+    for sc in proto_scenes:
+        dur_fr = sc["range"]["end"] - sc["range"]["start"] + 1
+        if dur_fr < min_fr and merged:
+            # 合并到上一个
+            prev = merged[-1]
+            prev["shot_ids"].extend(sc["shot_ids"])
+            prev["range"]["end"] = sc["range"]["end"]
+            prev["duration_s"] = round(
+                (prev["range"]["end"] - prev["range"]["start"] + 1) / fps, 1)
+            prev["n_shots"] = len(prev["shot_ids"])
+        else:
+            merged.append(sc)
+
+    skeleton["proto_scenes"] = merged
 
     out_dir = os.path.join(output, "visual_cluster")
     os.makedirs(out_dir, exist_ok=True)
 
-    skel_path = os.path.join(out_dir, "skeleton.json")
-    with open(skel_path, "w") as f:
+    with open(os.path.join(out_dir, "skeleton.json"), "w") as f:
         json.dump(skeleton, f, ensure_ascii=False, indent=2)
 
-    # 摘要
     summary = {
         "step": "visual_cluster",
-        "cut_threshold": cut_thr,
+        "vis_threshold": thr,
+        "window": window,
         "n_shots": n,
-        "n_boundaries": len(boundaries),
-        "n_proto_scenes": len(proto_scenes),
-        "proto_scenes": proto_scenes,
+        "n_components": len(comps),
+        "n_proto_scenes_before_merge": len(proto_scenes),
+        "n_proto_scenes": len(merged),
+        "proto_scenes": merged,
     }
     with open(os.path.join(out_dir, "visual_cluster.json"), "w") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
-    sizes = [sc["n_shots"] for sc in proto_scenes]
+    sizes = [sc["n_shots"] for sc in merged]
     single = sum(1 for s in sizes if s == 1)
-    print(f"  proto-scenes: {len(proto_scenes)}  "
-          f"singletons={single}  max_size={max(sizes)}  "
+    print(f"  proto-scenes: {len(merged)}  "
+          f"singletons={single}  "
+          f"max_size={max(sizes) if sizes else 0}  "
           f"avg_size={np.mean(sizes):.1f}")
     print(f"  -> {out_dir}/")
 
